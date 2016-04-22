@@ -1,8 +1,9 @@
 # coding: utf-8
 import json
-import logging
 import os
+import shutil
 
+from smart_qq_bot.logger import logger
 from smart_qq_bot.config import DEFAULT_PLUGIN_CONFIG
 from smart_qq_bot.excpetions import (
     ConfigFileDoesNotExist,
@@ -47,11 +48,12 @@ class PluginManager(object):
                     "Config file [] does not exist." % config_file
                 )
         else:
-            if os.path.isfile(DEFAULT_PLUGIN_CONFIG):
-                with open(DEFAULT_PLUGIN_CONFIG, "r") as f:
-                    config = json.load(f)
-            else:
-                logging.warning("No plugin config file found.")
+            if not os.path.isfile(DEFAULT_PLUGIN_CONFIG):
+                shutil.copy(DEFAULT_PLUGIN_CONFIG + ".example", DEFAULT_PLUGIN_CONFIG)
+                logger.warning("No plugin config file found. Auto copied.")
+            with open(DEFAULT_PLUGIN_CONFIG, "r") as f:
+                config = json.load(f)
+
         if config is not None:
             for key in ("plugin_package", PLUGIN_ON):
                 if not isinstance(config.get("plugin_package", []), list):
@@ -73,9 +75,9 @@ class PluginManager(object):
         for package_name in self.config[PLUGIN_PACKAGES]:
             try:
                 __import__(package_name)
-                logging.info("Package plugin [%s] loaded." % package_name)
+                logger.info("Package plugin [%s] loaded." % package_name)
             except ImportError:
-                logging.error(
+                logger.error(
                     "Package plugin import error: can not import [%s]"
                     % package_name
                 )
@@ -84,9 +86,9 @@ class PluginManager(object):
         for plugin_name in self.config[PLUGIN_ON]:
             try:
                 __import__(self._gen_plugin_name(plugin_name))
-                logging.info("Plugin [%s] loaded." % plugin_name)
+                logger.info("Plugin [%s] loaded." % plugin_name)
             except ImportError:
-                logging.error(
+                logger.error(
                     "Internal plugin import error: can not import [%s]"
                     % plugin_name
                 )

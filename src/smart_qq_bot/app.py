@@ -1,4 +1,5 @@
 # coding: utf-8
+
 from smart_qq_bot.bot import QQBot
 from smart_qq_bot.plugin import PluginManager
 

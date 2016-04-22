@@ -8,7 +8,6 @@ from smart_qq_bot.handler import (
     inactivate,
 )
 from smart_qq_bot.messages import GroupMsg, PrivateMsg
-
 from smart_qq_bot.signals import on_all_message
 
 
@@ -40,7 +39,7 @@ def do_hello(text):
 
 def do_list_plugin(text):
     if re.match(cmd_list_plugin, text):
-        return "All: %s, Active: %s" % (
+        return "All: %s\n\nActive: %s" % (
             str(list_handlers()), str(list_active_handlers())
         )
 
@@ -63,9 +62,9 @@ def hello_bot(msg, bot):
         for handler in group_handlers:
             result = handler(msg.content)
             if result is not None:
-                return bot.send_qun_msg(msg.from_uin, result, msg_id)
+                return bot.reply_msg(msg, result)
     elif isinstance(msg, PrivateMsg):
         for handler in private_handlers:
             result = handler(msg.content)
             if result is not None:
-                return bot.send_buddy_msg(msg.from_uin, result, msg_id)
+                return bot.reply_msg(msg, result)

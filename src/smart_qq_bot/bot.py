@@ -4,14 +4,19 @@
 import datetime
 import os
 import time
-import logging
 import re
 import json
 from threading import Thread
 
+from smart_qq_bot.logger import logger
 from smart_qq_bot.config import QR_CODE_PATH, SMART_QQ_REFER
 from smart_qq_bot.http_client import HttpClient
-
+from smart_qq_bot.messages import (
+    QMessage,
+    GroupMsg,
+    PrivateMsg,
+    SessMsg,
+)
 
 QR_CODE_STATUS = {
     "qr_code_expired": 65,
@@ -51,7 +56,7 @@ def find_first_result(html, regxp, error, raise_exception=False):
             raise ValueError(
                tip
             )
-        logging.warning(tip)
+        logger.warning(tip)
         return ''
 
     return founds[0]
@@ -127,7 +132,7 @@ class QQBot(object):
         return ""
 
     def _login_by_cookie(self):
-        logging.info("Try cookie login...")
+        logger.info("Try cookie login...")
         self.ptwebqq = self.client.get_cookie('ptwebqq')
         response = self.client.post(
             'http://d1.web2.qq.com/channel/login2',
@@ -162,12 +167,12 @@ class QQBot(object):
         self.account = ret['result']['uin']
         self.vfwebqq = ret2['result']['vfwebqq']
 
-        logging.info("Login by cookie succeed. account: %s" % self.account)
+        logger.info("Login by cookie succeed. account: %s" % self.account)
         return True
 
     def _login_by_qrcode(self):
-        logging.info("RUNTIMELOG Trying to login by qrcode.")
-        logging.info("RUNTIMELOG Requesting the qrcode login pages...")
+        logger.info("RUNTIMELOG Trying to login by qrcode.")
+        logger.info("RUNTIMELOG Requesting the qrcode login pages...")
         qr_validation_url = 'https://ssl.ptlogin2.qq.com/ptqrlogin?' \
                             'webqq_type=10&remember_uin=1&login2qq=1&aid={0}' \
                             '&u1=http%3A%2F%2Fw.qq.com%2Fproxy.html%3Flogin2qq%3D1%26webqq_type%3D10' \
@@ -215,7 +220,7 @@ class QQBot(object):
 
         while True:
             error_times += 1
-            logging.info("Downloading QRCode file...")
+            logger.info("Downloading QRCode file...")
             self.client.download(
                 'https://ssl.ptlogin2.qq.com/ptqrshow?appid={0}&e=0&l=L&s=8&d=72&v=4'.format(appid),
                 self.qrcode_path
@@ -250,7 +255,7 @@ class QQBot(object):
             raise QRLoginFailed(login_failed_tips)
         else:
             html = self.client.get(redirect_url)
-            logging.debug("QR Login redirect_url response: %s" % html)
+            logger.debug("QR Login redirect_url response: %s" % html)
             return True
 
     def _get_qr_login_status(
@@ -271,7 +276,7 @@ class QQBot(object):
         ret_code = int(find_first_result(login_result, r"\d+?", None))
         redirect_info = re.findall(r"(http.*?)\'", login_result)
         if redirect_info:
-            logging.debug("redirect_info match is: %s" % redirect_info)
+            logger.debug("redirect_info match is: %s" % redirect_info)
             redirect_url = redirect_info[0]
         return ret_code, redirect_url
 
@@ -279,7 +284,7 @@ class QQBot(object):
         try:
             self._login_by_cookie()
         except CookieLoginFailed:
-            logging.exception("Cookie login failed, info listed below:")
+            logger.info("Cookie login failed.")
             while True:
                 if self._login_by_qrcode():
                     if self._login_by_cookie():
@@ -289,16 +294,16 @@ class QQBot(object):
             self.get_online_buddies2()
             try:
                 self.username = user_info['nick']
-                logging.info(
+                logger.info(
                     "User information got: user name is [%s]" % self.username
                 )
             except KeyError:
-                logging.exception(
+                logger.exception(
                     "User info access failed, check your login and response:\n%s"
                     % user_info
                 )
                 exit(1)
-            logging.info("RUNTIMELOG QQ：{0} login successfully, Username：{1}".format(self.account, self.username))
+            logger.info("RUNTIMELOG QQ：{0} login successfully, Username：{1}".format(self.account, self.username))
 
     def check_msg(self):
 
@@ -317,42 +322,47 @@ class QQBot(object):
             },
             SMART_QQ_REFER
         )
-        logging.debug("Pooling returns response:\n %s" % response)
+        logger.debug("Pooling returns response:\n %s" % response)
         if response == "":
             return
-        ret = json.loads(response)
+        try:
+            ret = json.loads(response)
+        except ValueError:
+            logger.warning("RUNTIMELOG decode poll response error.")
+            logger.debug("RESPONSE {}".format(response))
+            return
 
         ret_code = ret['retcode']
 
         if ret_code in (103, ):
-            logging.warning(
-                "Pooling received retcode: " + str(ret_code) + ": Check error.retrying.."
+            logger.warning(
+                "Pooling received retcode: " + str(ret_code) + ": Check error. 请前往http://w.qq.com/ 手动登陆SmartQQ一次."
             )
         elif ret_code in (121,):
-            logging.warning("Pooling error with retcode %s" % ret_code)
+            logger.warning("Pooling error with retcode %s" % ret_code)
         elif ret_code == 0:
             if 'result' not in ret or len(ret['result']) == 0:
-                logging.info("Pooling ends, no new message received.")
+                logger.info("Pooling ends, no new message received.")
             else:
                 return ret['result']
         elif ret_code == 100006:
-            logging.error("Pooling request error, response is: %s" % ret)
+            logger.error("Pooling request error, response is: %s" % ret)
         elif ret_code == 116:
             self.ptwebqq = ret['p']
-            logging.debug("ptwebqq updated in this pooling")
+            logger.debug("ptwebqq updated in this pooling")
         else:
-            logging.warning("Pooling returns unknown retcode %s" % ret_code)
+            logger.warning("Pooling returns unknown retcode %s" % ret_code)
         return None
 
     def uin_to_account(self, tuin):
         """
         将uin转换成用户QQ号
         :param tuin:
-        :return:str 用户昵称
+        :return:str 用户QQ号
         """
         uin_str = str(tuin)
         try:
-            logging.info("RUNTIMELOG Requesting the account by uin:    " + str(tuin))
+            logger.info("RUNTIMELOG Requesting the account by uin:    " + str(tuin))
             info = json.loads(
                 self.client.get(
                     'http://s.web2.qq.com/api/get_friend_uin2?tuin={0}&type=1&vfwebqq={1}&t={2}'.format(
@@ -363,14 +373,14 @@ class QQBot(object):
                     SMART_QQ_REFER
                 )
             )
-            logging.debug("RESPONSE uin_to_account html:    " + str(info))
+            logger.debug("RESPONSE uin_to_account html:    " + str(info))
             if info['retcode'] != 0:
                 raise TypeError('uin_to_account retcode error')
             info = info['result']['account']
             return info
 
         except Exception:
-            logging.exception("RUNTIMELOG uin_to_account fail")
+            logger.exception("RUNTIMELOG uin_to_account fail")
             return None
 
     # 获取自己的信息
@@ -427,7 +437,7 @@ class QQBot(object):
         """
         uin_str = str(tuin)
         try:
-            logging.info("RUNTIMELOG Requesting the account info by uin:    " + str(tuin))
+            logger.info("RUNTIMELOG Requesting the account info by uin:    " + str(tuin))
             info = json.loads(self.client.get(
                     'http://s.web2.qq.com/api/get_friend_info2?tuin={0}&vfwebqq={1}&clientid={2}&psessionid={3}&t={4}'
                         .format(
@@ -437,14 +447,14 @@ class QQBot(object):
                             self.psessionid,
                             self.client.get_timestamp()),
             ))
-            logging.debug("RESPONSE get_friend_info2 html:    " + str(info))
+            logger.debug("RESPONSE get_friend_info2 html:    " + str(info))
             if info['retcode'] != 0:
                 raise TypeError('get_friend_info2 result error')
             info = info['result']
             return info
 
         except:
-            logging.warning("RUNTIMELOG get_friend_info2 fail")
+            logger.warning("RUNTIMELOG get_friend_info2 fail")
             return None
 
     # 获取好友详情信息
@@ -458,8 +468,8 @@ class QQBot(object):
         try:
             return '【{0}({1})】'.format(self.friend_list[uin_str]['nick'], self.friend_list[uin_str]['account'])
         except:
-            logging.warning("RUNTIMELOG get_friend_info return fail.")
-            logging.debug("RUNTIMELOG now uin list:    " + str(self.friend_list[uin_str]))
+            logger.warning("RUNTIMELOG get_friend_info return fail.")
+            logger.debug("RUNTIMELOG now uin list:    " + str(self.friend_list[uin_str]))
 
     # 获取好友的签名信息
     def get_single_long_nick2(self, tuin):
@@ -496,15 +506,15 @@ class QQBot(object):
                 return {}
             return rsp_json["result"]
         except Exception as ex:
-            logging.warning("RUNTIMELOG get_group_info_ext2. Error: " + str(ex))
+            logger.warning("RUNTIMELOG get_group_info_ext2. Error: " + str(ex))
             return {}
 
     # 发送群消息
-    def send_qun_msg(self, guin, reply_content, msg_id, fail_times=0):
+    def send_qun_msg(self, reply_content, guin, msg_id, fail_times=0):
         fix_content = str(reply_content.replace("\\", "\\\\\\\\").replace("\n", "\\\\n").replace("\t", "\\\\t"))
         rsp = ""
         try:
-            logging.info("Starting send group message: %s" % reply_content)
+            logger.info("Starting send group message: %s" % reply_content)
             req_url = "http://d1.web2.qq.com/channel/send_qun_msg2"
             data = (
                 ('r',
@@ -517,22 +527,23 @@ class QQBot(object):
             rsp_json = json.loads(rsp)
             if 'retcode' in rsp_json and rsp_json['retcode'] not in MESSAGE_SENT:
                 raise ValueError("RUNTIMELOG reply group chat error" + str(rsp_json['retcode']))
-            logging.info("RUNTIMELOG send_qun_msg: Reply successfully.")
-            logging.debug("RESPONSE send_qun_msg: Reply response: " + str(rsp))
+            logger.info("RUNTIMELOG send_qun_msg: Reply '{}' successfully.".format(reply_content))
+            logger.debug("RESPONSE send_qun_msg: Reply response: " + str(rsp))
             return rsp_json
         except:
-            logging.warning("RUNTIMELOG send_qun_msg fail")
+            logger.warning("RUNTIMELOG send_qun_msg fail")
             if fail_times < 5:
-                logging.warning("RUNTIMELOG send_qun_msg: Response Error.Wait for 2s and Retrying." + str(fail_times))
-                logging.debug("RESPONSE send_qun_msg rsp:" + str(rsp))
+                logger.warning("RUNTIMELOG send_qun_msg: Response Error.Wait for 2s and Retrying." + str(fail_times))
+                logger.debug("RESPONSE send_qun_msg rsp:" + str(rsp))
                 time.sleep(2)
                 self.send_qun_msg(guin, reply_content, msg_id, fail_times + 1)
             else:
-                logging.warning("RUNTIMELOG send_qun_msg: Response Error over 5 times.Exit.reply content:" + str(reply_content))
+                logger.warning("RUNTIMELOG send_qun_msg: Response Error over 5 times.Exit.reply content:" + str(reply_content))
                 return False
 
+
     # 发送私密消息
-    def send_buddy_msg(self, tuin, reply_content, msg_id, fail_times=0):
+    def send_buddy_msg(self, reply_content, tuin, msg_id, fail_times=0):
         fix_content = str(reply_content.replace("\\", "\\\\\\\\").replace("\n", "\\\\n").replace("\t", "\\\\t"))
         rsp = ""
         try:
@@ -548,21 +559,21 @@ class QQBot(object):
             rsp_json = json.loads(rsp)
             if 'errCode' in rsp_json and rsp_json['errCode'] != 0:
                 raise ValueError("reply pmchat error" + str(rsp_json['retcode']))
-            logging.info("RUNTIMELOG Reply successfully.")
-            logging.debug("RESPONSE Reply response: " + str(rsp))
+            logger.info("RUNTIMELOG Reply successfully.")
+            logger.debug("RESPONSE Reply response: " + str(rsp))
             return rsp_json
         except:
             if fail_times < 5:
-                logging.warning("RUNTIMELOG Response Error.Wait for 2s and Retrying." + str(fail_times))
-                logging.debug("RESPONSE " + str(rsp))
+                logger.warning("RUNTIMELOG Response Error.Wait for 2s and Retrying." + str(fail_times))
+                logger.debug("RESPONSE " + str(rsp))
                 time.sleep(2)
                 self.send_buddy_msg(tuin, reply_content, msg_id, fail_times + 1)
             else:
-                logging.warning("RUNTIMELOG Response Error over 5 times.Exit.reply content:" + str(reply_content))
+                logger.warning("RUNTIMELOG Response Error over 5 times.Exit.reply content:" + str(reply_content))
                 return False
 
     # 发送临时消息
-    def send_sess_msg2(self, tuin, reply_content, msg_id, group_sig, service_type=0, fail_times=0):
+    def send_sess_msg2(self, reply_content, tuin, msg_id, group_sig, service_type=0, fail_times=0):
         fix_content = str(reply_content.replace("\\", "\\\\\\\\").replace("\n", "\\\\n").replace("\t", "\\\\t"))
         rsp = ""
         try:
@@ -587,21 +598,21 @@ class QQBot(object):
             rsp_json = json.loads(rsp)
             if 'retcode' in rsp_json and rsp_json['retcode'] != 0:
                 raise ValueError("reply sess chat error" + str(rsp_json['retcode']))
-            logging.info("RUNTIMELOG Reply successfully.")
-            logging.debug("RESPONSE Reply response: " + str(rsp))
+            logger.info("RUNTIMELOG Reply successfully.")
+            logger.debug("RESPONSE Reply response: " + str(rsp))
             return rsp_json
         except:
             if fail_times < 5:
-                logging.warning("RUNTIMELOG Response Error.Wait for 2s and Retrying." + str(fail_times))
-                logging.debug("RESPONSE " + str(rsp))
+                logger.warning("RUNTIMELOG Response Error.Wait for 2s and Retrying." + str(fail_times))
+                logger.debug("RESPONSE " + str(rsp))
                 time.sleep(2)
                 self.send_sess_msg2(tuin, reply_content, msg_id, group_sig, service_type, fail_times + 1)
             else:
-                logging.warning("RUNTIMELOG Response Error over 5 times.Exit.reply content:" + str(reply_content))
+                logger.warning("RUNTIMELOG Response Error over 5 times.Exit.reply content:" + str(reply_content))
                 return False
 
     # 主动发送临时消息
-    def send_sess_msg2_fromGroup(self, guin, tuin, reply_content, msg_id, service_type=0, fail_times=0):
+    def send_sess_msg2_fromGroup(self, reply_content, guin, tuin, msg_id, service_type=0, fail_times=0):
         group_sig = self._get_group_sig(guin, tuin, service_type)
         fix_content = str(reply_content.replace("\\", "\\\\\\\\").replace("\n", "\\\\n").replace("\t", "\\\\t"))
         rsp = ""
@@ -627,16 +638,36 @@ class QQBot(object):
             rsp_json = json.loads(rsp)
             if 'retcode' in rsp_json and rsp_json['retcode'] != 0:
                 raise ValueError("RUNTIMELOG reply sess chat error" + str(rsp_json['retcode']))
-            logging.info("RUNTIMELOG send_sess_msg2_fromGroup: Reply successfully.")
-            logging.debug("RESPONSE send_sess_msg2_fromGroup: Reply response: " + str(rsp))
+            logger.info("RUNTIMELOG send_sess_msg2_fromGroup: Reply successfully.")
+            logger.debug("RESPONSE send_sess_msg2_fromGroup: Reply response: " + str(rsp))
             return rsp_json
         except:
             if fail_times < 5:
-                logging.warning("RUNTIMELOG send_sess_msg2_fromGroup: Response Error.Wait for 2s and Retrying." + str(fail_times))
-                logging.debug("RESPONSE "+ str(rsp))
+                logger.warning("RUNTIMELOG send_sess_msg2_fromGroup: Response Error.Wait for 2s and Retrying." + str(fail_times))
+                logger.debug("RESPONSE "+ str(rsp))
                 time.sleep(2)
                 self.send_sess_msg2_fromGroup(guin, tuin, reply_content, msg_id, service_type, fail_times + 1)
             else:
-                logging.warning(
+                logger.warning(
                     "RUNTIMELOG send_sess_msg2_fromGroup: Response Error over 5 times.Exit.reply content:" + str(reply_content))
                 return False
+
+    def reply_msg(self, msg, reply_content=None, return_function=False):
+        """
+        :type msg: QMessage类, 例如 GroupMsg, PrivateMsg, SessMsg
+        :type reply_content: string, 回复的内容.
+        :return: 服务器的响应内容. 如果 return_function 为 True, 则返回的是一个仅有 reply_content 参数的便捷回复函数.
+        """
+        import functools
+        assert isinstance(msg, QMessage)
+        if isinstance(msg, GroupMsg):
+            if return_function:
+                return functools.partial(self.send_qun_msg, guin=msg.group_code, msg_id=msg.msg_id+1)
+            return self.send_qun_msg(guin=msg.group_code, reply_content=reply_content, msg_id=msg.msg_id+1)
+        if isinstance(msg, PrivateMsg):
+            if return_function:
+                return functools.partial(self.send_buddy_msg, tuin=msg.from_uin, msg_id=msg.msg_id+1)
+            return self.send_buddy_msg(tuin=msg.from_uin, reply_content=reply_content, msg_id=msg.msg_id+1)
+        if isinstance(msg, SessMsg):
+            # 官方已废弃临时消息接口, 等官方重启后再完善此函数
+            pass

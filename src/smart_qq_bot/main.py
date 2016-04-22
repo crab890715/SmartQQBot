@@ -3,11 +3,11 @@ import logging
 import socket
 import sys
 
+from smart_qq_bot.logger import logger
 from smart_qq_bot.app import bot, plugin_manager
-from smart_qq_bot.config import init_logging
 from smart_qq_bot.handler import MessageObserver
 from smart_qq_bot.messages import mk_msg
-
+from smart_qq_bot.excpetions import ServerResponseEmpty
 
 def patch():
     reload(sys)
@@ -16,7 +16,8 @@ def patch():
 
 def run():
     patch()
-    init_logging(logging.DEBUG)
+    logger.setLevel(logging.INFO)
+    logger.info("Initializing...")
     plugin_manager.load_plugin()
     bot.login()
     observer = MessageObserver(bot)
@@ -27,10 +28,12 @@ def run():
                 observer.handle_msg_list(
                     [mk_msg(msg) for msg in msg_list]
                 )
-        except socket.timeout as e:
-            logging.warning("Message pooling timeout, retrying...")
+        except ServerResponseEmpty:
+            continue
+        except (socket.timeout, IOError):
+            logger.warning("Message pooling timeout, retrying...")
         except Exception:
-            logging.exception("Exception occurs when checking msg.")
+            logger.exception("Exception occurs when checking msg.")
 
 if __name__ == "__main__":
     run()
