@@ -87,8 +87,8 @@ def send_msg(msg, bot):
             bot.reply_msg(msg, response)
         elif msg.content == '帮助列表':
             result = ""
-            for key in core.tucao_dict[group_code].keys():
-                result += "关键字：{0}\t\t回复：{1}\n".format(key, " / ".join(core.tucao_dict[group_code][key]))
+            for key in satoru.data.keys():
+                result += "关键字：{0}\t\t回复：{1}\n".format(key, " / ".join(satoru.data[key]))
             result = result[:-1]
             logger.info("RUNTIMELOG Replying the list of tucao for group {}".format(group_code))
             bot.reply_msg(msg, result)
