@@ -74,15 +74,24 @@ def send_msg(msg, bot):
     :type bot: smart_qq_bot.bot.QQBot
     :type msg: smart_qq_bot.messages.GroupMsg
     """
+    group_code = str(msg.group_code)
     result = satoru.is_learn(msg.content)
     if result:
         key, value = result
-        satoru.add_rule(key, value)
+        if '帮助列表' != key and group_code == '1910383045':
+            satoru.add_rule(key, value)
+            bot.reply_msg(msg,"学习成功！快对我说" + str(key) + "试试吧！")
     else:
         response = satoru.match(msg.content)
         if response:
             bot.reply_msg(msg, response)
-
+        elif msg.content == '帮助列表':
+            result = ""
+            for key in core.tucao_dict[group_code].keys():
+                result += "关键字：{0}\t\t回复：{1}\n".format(key, " / ".join(core.tucao_dict[group_code][key]))
+            result = result[:-1]
+            logger.info("RUNTIMELOG Replying the list of tucao for group {}".format(group_code))
+            bot.reply_msg(msg, result)
 
 @on_private_message(name="satoru")
 def remove(msg, bot):
