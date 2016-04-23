@@ -75,10 +75,11 @@ def send_msg(msg, bot):
     :type msg: smart_qq_bot.messages.GroupMsg
     """
     group_code = str(msg.group_code)
+    print group_code
     result = satoru.is_learn(msg.content)
     if result:
         key, value = result
-        if '帮助列表' != key and group_code == '1910383045':
+        if '帮助列表' != key and group_code == '1695108041':
             satoru.add_rule(key, value)
             bot.reply_msg(msg,"学习成功！快对我说" + str(key) + "试试吧！")
     else:
