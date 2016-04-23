@@ -50,9 +50,13 @@ class Satoru(object):
         logger.info("key [%s] removed" % key)
 
     def match(self, key):
-        if key in self.data:
-            result = self.data[key]
-            return result[randint(0, len(result) - 1)]
+        for m in self.data:
+            if m in key:
+                result = self.data[m]
+                return result[randint(0, len(result) - 1)]
+#         if key in self.data:
+#             result = self.data[key]
+#             return result[randint(0, len(result) - 1)]
         return None
 
     def save(self):
